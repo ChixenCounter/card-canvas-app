@@ -21,7 +21,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && .\\node_modules\\.bin\\electron .\"",
+    "electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 .\\node_modules\\.bin\\electron .\"",
     "package": "npm run build && .\\node_modules\\.bin\\electron-builder --win"
   },
   "build": {
@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "electron": "^42.2.0",
     "electron-builder": "^26.8.1",
     "electron-packager": "^17.1.2",
