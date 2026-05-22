@@ -17,25 +17,36 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-  "start": "react-scripts start",
-  "build": "react-scripts build",
-  "test": "react-scripts test",
-  "eject": "react-scripts eject",
-  "electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
-  "package": "npm run build && electron-builder build --win --portable"
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && .\\node_modules\\.bin\\electron .\"",
+    "package": "npm run build && .\\node_modules\\.bin\\electron-builder --win"
   },
   "build": {
-  "appId": "com.yourname.cardcanvas",
-  "productName": "Card Canvas",
-  "files": [
-    "build/**/*",
-    "electron.js",
-    "preload.js"
-  ],
-  "win": {
-    "target": "portable"
-  }
-},
+    "appId": "com.yourname.cardcanvas",
+    "productName": "Card Canvas",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "electron.js",
+      "preload.js"
+    ],
+    "asar": false,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
   "eslintConfig": {
     "extends": [
       "react-app",
@@ -58,6 +69,7 @@
     "concurrently": "^9.2.1",
     "electron": "^42.2.0",
     "electron-builder": "^26.8.1",
+    "electron-packager": "^17.1.2",
     "wait-on": "^9.0.10"
   }
 }
