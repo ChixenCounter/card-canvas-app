@@ -5,8 +5,6 @@ function App() {
   const canvasRef = useRef(null);
   const [cards, setCards] = useState([]);
   const [deckCount, setDeckCount] = useState(0);
-  const [cardDirectory, setCardDirectory] = useState('cards');
-  const [dirInput, setDirInput] = useState('cards');
   const [statusMessage, setStatusMessage] = useState('');
   const [statusType, setStatusType] = useState('info');
   const [loadedFiles, setLoadedFiles] = useState([]);
@@ -26,8 +24,6 @@ function App() {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    loadCardsFromManifest('cards');
-
     let selectedCard = null;
     let offsetX = 0;
     let offsetY = 0;
@@ -35,13 +31,9 @@ function App() {
     let panStartX = 0;
     let panStartY = 0;
 
-    // Convert screen coords to world coords
     const toWorld = (sx, sy) => {
       const vp = viewportRef.current;
-      return {
-        x: (sx - vp.x) / vp.scale,
-        y: (sy - vp.y) / vp.scale,
-      };
+      return { x: (sx - vp.x) / vp.scale, y: (sy - vp.y) / vp.scale };
     };
 
     canvas.addEventListener('mousedown', (e) => {
@@ -64,7 +56,6 @@ function App() {
         found.selected = true;
         redraw();
       } else {
-        // Start panning
         selectedCard = null;
         isPanning = true;
         panStartX = sx - viewportRef.current.x;
@@ -90,32 +81,20 @@ function App() {
       }
     });
 
-    canvas.addEventListener('mouseup', () => {
-      selectedCard = null;
-      isPanning = false;
-    });
+    canvas.addEventListener('mouseup', () => { selectedCard = null; isPanning = false; });
+    canvas.addEventListener('mouseleave', () => { selectedCard = null; isPanning = false; });
 
-    canvas.addEventListener('mouseleave', () => {
-      selectedCard = null;
-      isPanning = false;
-    });
-
-    // Zoom with mouse wheel
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-
       const vp = viewportRef.current;
       const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
       const newScale = Math.min(Math.max(vp.scale * zoomFactor, 0.2), 5);
-
-      // Zoom toward mouse position
       vp.x = sx - (sx - vp.x) * (newScale / vp.scale);
       vp.y = sy - (sy - vp.y) * (newScale / vp.scale);
       vp.scale = newScale;
-
       setZoomLevel(Math.round(newScale * 100));
       redraw();
     }, { passive: false });
@@ -123,12 +102,8 @@ function App() {
     const redraw = () => {
       const vp = viewportRef.current;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Background
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Apply viewport transform
       ctx.save();
       ctx.translate(vp.x, vp.y);
       ctx.scale(vp.scale, vp.scale);
@@ -137,21 +112,17 @@ function App() {
         ctx.save();
         ctx.translate(card.x + card.width / 2, card.y + card.height / 2);
         ctx.rotate((card.rotation || 0) * Math.PI / 180);
-
         ctx.shadowColor = 'rgba(0,0,0,0.6)';
         ctx.shadowBlur = 12;
         ctx.shadowOffsetX = 4;
         ctx.shadowOffsetY = 4;
-
         ctx.drawImage(card.image, -card.width / 2, -card.height / 2, card.width, card.height);
-
         if (card.selected) {
           ctx.shadowColor = 'transparent';
           ctx.strokeStyle = '#00d4ff';
           ctx.lineWidth = 3 / vp.scale;
           ctx.strokeRect(-card.width / 2 - 3, -card.height / 2 - 3, card.width + 6, card.height + 6);
         }
-
         ctx.restore();
       });
 
@@ -167,37 +138,6 @@ function App() {
     window.redraw();
   };
 
-  const loadCardsFromManifest = async (dirPath) => {
-    try {
-      setStatusMessage('Loading...');
-      setStatusType('info');
-      const response = await fetch(`/${dirPath}/manifest.json`);
-      if (!response.ok) {
-        setStatusMessage(`No manifest.json found in /${dirPath}`);
-        setStatusType('error');
-        setCards([]);
-        return;
-      }
-      const fileList = await response.json();
-      const imageFiles = fileList.filter(f => /\.(jpg|jpeg|png|gif)$/i.test(f));
-      if (imageFiles.length === 0) {
-        setStatusMessage('No images found in manifest.');
-        setStatusType('error');
-        setCards([]);
-        return;
-      }
-      setCards(imageFiles);
-      setLoadedFiles([]);
-      setCardDirectory(dirPath);
-      setStatusMessage(`✓ ${imageFiles.length} cards loaded from /${dirPath}`);
-      setStatusType('success');
-    } catch (error) {
-      setStatusMessage(`Error: ${error.message}`);
-      setStatusType('error');
-      setCards([]);
-    }
-  };
-
   const handleFolderPick = (e) => {
     const files = Array.from(e.target.files).filter(f =>
       /\.(jpg|jpeg|png|gif)$/i.test(f.name)
@@ -209,43 +149,22 @@ function App() {
     }
     setLoadedFiles(files);
     setCards(files.map(f => f.name));
-    setCardDirectory('__local__');
-    setStatusMessage(`✓ ${files.length} cards loaded from folder`);
+    setStatusMessage(`✓ ${files.length} cards ready`);
     setStatusType('success');
     e.target.value = '';
   };
 
-  const generateManifest = async () => {
-    const dir = dirInput.trim();
-    if (!dir) return;
-    try {
-      const command = `node -e "const fs=require('fs');const files=fs.readdirSync('./public/${dir}').filter(f=>/\\\\.(jpg|jpeg|png|gif)$/i.test(f));fs.writeFileSync('./public/${dir}/manifest.json',JSON.stringify(files,null,2));console.log('Done! Found '+files.length+' cards.');"`;
-      await navigator.clipboard.writeText(command);
-      setStatusMessage('✓ Command copied! Paste in terminal, then click Load.');
-      setStatusType('success');
-    } catch {
-      setStatusMessage('Could not copy. Run the manifest command manually.');
-      setStatusType('error');
-    }
-  };
-
   const drawCard = () => {
     const canvas = canvasRef.current;
-    if (!canvas || cards.length === 0) { alert('No cards loaded.'); return; }
-    const randomIndex = Math.floor(Math.random() * cards.length);
-    if (cardDirectory === '__local__' && loadedFiles.length > 0) {
-      const file = loadedFiles[randomIndex];
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => placeCard(img, canvas);
-      img.src = url;
+    if (!canvas || loadedFiles.length === 0) {
+      alert('Pick a folder of card images first.');
       return;
     }
-    const cardPath = `/${cardDirectory}/${cards[randomIndex]}`;
+    const randomIndex = Math.floor(Math.random() * loadedFiles.length);
+    const url = URL.createObjectURL(loadedFiles[randomIndex]);
     const img = new Image();
     img.onload = () => placeCard(img, canvas);
-    img.onerror = () => alert(`Failed to load: ${cards[randomIndex]}`);
-    img.src = cardPath;
+    img.src = url;
   };
 
   const placeCard = (img, canvas) => {
@@ -253,16 +172,12 @@ function App() {
     const maxWidth = 150;
     const maxHeight = 220;
     const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
-
-    // Place card in center of current view
     const worldCenterX = (canvas.width / 2 - vp.x) / vp.scale;
     const worldCenterY = (canvas.height / 2 - vp.y) / vp.scale;
-    const jitter = 100;
-
     const card = {
       image: img,
-      x: worldCenterX - (img.width * scale) / 2 + (Math.random() - 0.5) * jitter,
-      y: worldCenterY - (img.height * scale) / 2 + (Math.random() - 0.5) * jitter,
+      x: worldCenterX - (img.width * scale) / 2 + (Math.random() - 0.5) * 100,
+      y: worldCenterY - (img.height * scale) / 2 + (Math.random() - 0.5) * 100,
       width: img.width * scale,
       height: img.height * scale,
       rotation: 0,
@@ -270,6 +185,40 @@ function App() {
     };
     cardsOnCanvasRef.current.push(card);
     setDeckCount(cardsOnCanvasRef.current.length);
+    window.redraw();
+  };
+
+  const bringToFront = () => {
+    const list = cardsOnCanvasRef.current;
+    const idx = list.findIndex(c => c.selected);
+    if (idx === -1) return;
+    const [card] = list.splice(idx, 1);
+    list.push(card);
+    window.redraw();
+  };
+
+  const sendToBack = () => {
+    const list = cardsOnCanvasRef.current;
+    const idx = list.findIndex(c => c.selected);
+    if (idx === -1) return;
+    const [card] = list.splice(idx, 1);
+    list.unshift(card);
+    window.redraw();
+  };
+
+  const bringForward = () => {
+    const list = cardsOnCanvasRef.current;
+    const idx = list.findIndex(c => c.selected);
+    if (idx === -1 || idx === list.length - 1) return;
+    [list[idx], list[idx + 1]] = [list[idx + 1], list[idx]];
+    window.redraw();
+  };
+
+  const sendBackward = () => {
+    const list = cardsOnCanvasRef.current;
+    const idx = list.findIndex(c => c.selected);
+    if (idx <= 0) return;
+    [list[idx], list[idx - 1]] = [list[idx - 1], list[idx]];
     window.redraw();
   };
 
@@ -307,30 +256,32 @@ function App() {
         </div>
 
         <div className="directory-section">
-          <label>Load Cards From Folder:</label>
+          <label>Card Deck:</label>
           <button className="btn btn-folder" onClick={() => folderInputRef.current.click()}>
             📁 Pick Folder
           </button>
           <input ref={folderInputRef} type="file" webkitdirectory="true" multiple
             style={{ display: 'none' }} onChange={handleFolderPick} />
-          <div className="divider">— or use public/ folder —</div>
-          <div className="dir-row">
-            <input type="text" placeholder="folder name" value={dirInput}
-              onChange={(e) => setDirInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && loadCardsFromManifest(dirInput)}
-              className="dir-input" />
-            <button className="btn btn-load" onClick={() => loadCardsFromManifest(dirInput)}>Load</button>
-          </div>
-          <button className="btn btn-manifest" onClick={generateManifest}>⚙ Generate Manifest</button>
           <p className={`status-message status-${statusType}`}>{statusMessage}</p>
         </div>
 
         <div className="controls">
           <button className="btn btn-primary" onClick={drawCard}>🃏 Draw Random Card</button>
+
+          <div className="section-label">Rotate Selected</div>
           <div className="rotation-controls">
             <button className="btn btn-secondary" onClick={() => rotateSelected(-15)}>↻ Left</button>
             <button className="btn btn-secondary" onClick={() => rotateSelected(15)}>Right ↻</button>
           </div>
+
+          <div className="section-label">Layer Selected</div>
+          <div className="layer-controls">
+            <button className="btn btn-layer" onClick={bringToFront}>⤒ Front</button>
+            <button className="btn btn-layer" onClick={sendToBack}>⤓ Back</button>
+            <button className="btn btn-layer" onClick={bringForward}>↑ Forward</button>
+            <button className="btn btn-layer" onClick={sendBackward}>↓ Backward</button>
+          </div>
+
           <button className="btn btn-danger" onClick={deleteSelected}>Delete Selected</button>
           <button className="btn btn-warning" onClick={clearCanvas}>Clear All</button>
         </div>
@@ -343,7 +294,7 @@ function App() {
             <li>Click a card to select, drag to move</li>
             <li>Drag empty space to pan</li>
             <li><strong>Scroll wheel</strong> to zoom in/out</li>
-            <li>Click ⊙ to reset zoom</li>
+            <li>Use <strong>Layer</strong> buttons to stack cards</li>
           </ul>
         </div>
       </aside>
