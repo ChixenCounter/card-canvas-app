@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import './App.css';
 
 const HANDLE_SIZE = 8;
+const isElectron = !!window.electronAPI;
 
 function getHandles(card) {
   const hw = card.width / 2;
@@ -14,24 +15,18 @@ function getHandles(card) {
   ];
 }
 
-// Rotate a point around origin by angle (radians)
 function rotatePoint(x, y, angle) {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   return { x: x * cos - y * sin, y: x * sin + y * cos };
 }
 
-// Get world-space position of the lock icon (top-left corner of card)
 function getLockIconWorldPos(card) {
   const angle = (card.rotation || 0) * Math.PI / 180;
   const rot = rotatePoint(-card.width / 2, -card.height / 2, angle);
-  return {
-    x: card.x + card.width / 2 + rot.x,
-    y: card.y + card.height / 2 + rot.y,
-  };
+  return { x: card.x + card.width / 2 + rot.x, y: card.y + card.height / 2 + rot.y };
 }
 
-// Get world-space position of a handle
 function handleWorldPos(card, handle) {
   const angle = (card.rotation || 0) * Math.PI / 180;
   const rot = rotatePoint(handle.x, handle.y, angle);
@@ -48,36 +43,46 @@ function App() {
   const [zoomLevel, setZoomLevel] = useState(100);
   const [newDeckName, setNewDeckName] = useState('');
   const [hasSelected, setHasSelected] = useState(false);
+  const [selectedLocked, setSelectedLocked] = useState(false);
   const [cardSearch, setCardSearch] = useState('');
   const [showCardList, setShowCardList] = useState(false);
-  const [previewCard, setPreviewCard] = useState(null); // { url, name }
-  const [selectedLocked, setSelectedLocked] = useState(false);
+  const [previewCard, setPreviewCard] = useState(null);
+  // Layout save/load
+  const [layouts, setLayouts] = useState([]);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [saveLayoutName, setSaveLayoutName] = useState('');
+
   const cardsOnCanvasRef = useRef([]);
   const folderInputRef = useRef(null);
   const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
 
+  // ─── Canvas Setup ─────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    canvas.width = window.innerWidth - 280;
-    canvas.height = window.innerHeight;
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth - 320;
+      canvas.height = window.innerHeight;
+    };
+
+    resizeCanvas();
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+      redraw();
+    });
+
     let dragCard = null;
-    let dragOffsetX = 0;
-    let dragOffsetY = 0;
-    let dragHandle = null;     // which corner handle is being dragged
-    let dragStartX = 0;
-    let dragStartY = 0;
-    let dragStartW = 0;
-    let dragStartH = 0;
-    let dragStartCX = 0;
-    let dragStartCY = 0;
+    let dragOffsetX = 0, dragOffsetY = 0;
+    let dragHandle = null;
+    let dragStartX = 0, dragStartY = 0;
+    let dragStartW = 0, dragStartH = 0;
     let isPanning = false;
-    let panStartX = 0;
-    let panStartY = 0;
+    let panStartX = 0, panStartY = 0;
 
     const toWorld = (sx, sy) => {
       const vp = viewportRef.current;
@@ -86,7 +91,6 @@ function App() {
 
     const getSelectedCard = () => cardsOnCanvasRef.current.find(c => c.selected);
 
-    // Check if screen point is near a handle
     const hitHandle = (sx, sy) => {
       const vp = viewportRef.current;
       const sel = getSelectedCard();
@@ -95,25 +99,21 @@ function App() {
         const wp = handleWorldPos(sel, h);
         const screenX = wp.x * vp.scale + vp.x;
         const screenY = wp.y * vp.scale + vp.y;
-        const dist = Math.sqrt((sx - screenX) ** 2 + (sy - screenY) ** 2);
-        if (dist <= HANDLE_SIZE + 4) return { card: sel, handle: h };
+        if (Math.sqrt((sx - screenX) ** 2 + (sy - screenY) ** 2) <= HANDLE_SIZE + 4)
+          return { card: sel, handle: h };
       }
       return null;
     };
 
-    // Check if screen point hits the lock icon of any card
     const hitLockIcon = (sx, sy) => {
       const vp = viewportRef.current;
       for (const card of [...cardsOnCanvasRef.current].reverse()) {
         const wp = getLockIconWorldPos(card);
-        // Icon is offset slightly inside the card corner
-        const iconPad = 4;
-        const iconSize = 18;
+        const iconPad = 4, iconSize = 18;
         const screenX = (wp.x + iconPad + iconSize / 2) * vp.scale + vp.x - iconPad * vp.scale;
         const screenY = (wp.y + iconPad + iconSize / 2) * vp.scale + vp.y - iconPad * vp.scale;
         const hitRadius = (iconSize / 1.4) * vp.scale + 4;
-        const dist = Math.sqrt((sx - screenX) ** 2 + (sy - screenY) ** 2);
-        if (dist <= hitRadius) return card;
+        if (Math.sqrt((sx - screenX) ** 2 + (sy - screenY) ** 2) <= hitRadius) return card;
       }
       return null;
     };
@@ -124,31 +124,22 @@ function App() {
       const sy = e.clientY - rect.top;
       const { x, y } = toWorld(sx, sy);
 
-      // Check lock icon hit first
       const lockHit = hitLockIcon(sx, sy);
       if (lockHit) {
         lockHit.locked = !lockHit.locked;
-        // Update React state if this card is selected
         if (lockHit.selected) setSelectedLocked(lockHit.locked);
-        redraw();
-        return;
+        redraw(); return;
       }
 
-      // Check handle hit first
       const handleHit = hitHandle(sx, sy);
       if (handleHit && !handleHit.card.locked) {
         dragHandle = handleHit.handle;
         dragCard = handleHit.card;
-        dragStartX = sx;
-        dragStartY = sy;
-        dragStartW = dragCard.width;
-        dragStartH = dragCard.height;
-        dragStartCX = dragCard.x + dragCard.width / 2;
-        dragStartCY = dragCard.y + dragCard.height / 2;
+        dragStartX = sx; dragStartY = sy;
+        dragStartW = dragCard.width; dragStartH = dragCard.height;
         return;
       }
 
-      // Check card hit
       const found = [...cardsOnCanvasRef.current].reverse().find(card =>
         x > card.x && x < card.x + card.width &&
         y > card.y && y < card.y + card.height
@@ -183,22 +174,14 @@ function App() {
       const sy = e.clientY - rect.top;
 
       if (dragHandle && dragCard) {
-        // Scaling: compute delta in screen space, convert to world
         const vp = viewportRef.current;
         const dx = (sx - dragStartX) / vp.scale;
         const dy = (sy - dragStartY) / vp.scale;
-
-        // Which corner determines scale direction
         const signX = dragHandle.id.includes('r') ? 1 : -1;
         const signY = dragHandle.id.includes('b') ? 1 : -1;
-
-        const newW = Math.max(40, dragStartW + signX * dx * 2);
-        const newH = Math.max(40, dragStartH + signY * dy * 2);
-
-        dragCard.width = newW;
-        dragCard.height = newH;
-        redraw();
-        return;
+        dragCard.width = Math.max(40, dragStartW + signX * dx * 2);
+        dragCard.height = Math.max(40, dragStartH + signY * dy * 2);
+        redraw(); return;
       }
 
       if (dragCard) {
@@ -212,7 +195,6 @@ function App() {
         redraw();
       }
 
-      // Update cursor based on handle hover
       const handleHit = hitHandle(sx, sy);
       if (handleHit) {
         const id = handleHit.handle.id;
@@ -222,17 +204,8 @@ function App() {
       }
     });
 
-    canvas.addEventListener('mouseup', () => {
-      dragCard = null;
-      dragHandle = null;
-      isPanning = false;
-    });
-
-    canvas.addEventListener('mouseleave', () => {
-      dragCard = null;
-      dragHandle = null;
-      isPanning = false;
-    });
+    canvas.addEventListener('mouseup', () => { dragCard = null; dragHandle = null; isPanning = false; });
+    canvas.addEventListener('mouseleave', () => { dragCard = null; dragHandle = null; isPanning = false; });
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -262,7 +235,6 @@ function App() {
         ctx.save();
         ctx.translate(card.x + card.width / 2, card.y + card.height / 2);
         ctx.rotate((card.rotation || 0) * Math.PI / 180);
-
         ctx.shadowColor = 'rgba(0,0,0,0.6)';
         ctx.shadowBlur = 12;
         ctx.shadowOffsetX = 4;
@@ -271,13 +243,10 @@ function App() {
         ctx.shadowColor = 'transparent';
 
         if (card.selected) {
-          // Selection outline
           const color = card.locked ? '#f59e0b' : '#00d4ff';
           ctx.strokeStyle = color;
           ctx.lineWidth = 3 / vp.scale;
           ctx.strokeRect(-card.width / 2 - 3, -card.height / 2 - 3, card.width + 6, card.height + 6);
-
-          // Corner handles (only if not locked)
           if (!card.locked) {
             ctx.fillStyle = '#00d4ff';
             for (const h of getHandles(card)) {
@@ -285,23 +254,18 @@ function App() {
               ctx.fillRect(h.x - hs / 2, h.y - hs / 2, hs, hs);
             }
           }
-
-          // Lock icon - drawn inside top-left of card
           const lockIcon = card.locked ? '🔒' : '🔓';
           const iconSize = 18 / vp.scale;
           const iconPad = 4 / vp.scale;
-          // Background circle
           ctx.beginPath();
           ctx.arc(-card.width / 2 + iconPad + iconSize / 2, -card.height / 2 + iconPad + iconSize / 2, iconSize / 1.4, 0, Math.PI * 2);
           ctx.fillStyle = 'rgba(0,0,0,0.55)';
           ctx.fill();
-          // Icon
           ctx.font = `${iconSize}px serif`;
           ctx.fillStyle = 'white';
           ctx.fillText(lockIcon, -card.width / 2 + iconPad, -card.height / 2 + iconPad + iconSize);
         }
 
-        // Always show lock badge on locked cards even when not selected
         if (card.locked && !card.selected) {
           const iconSize = 18 / vp.scale;
           const iconPad = 4 / vp.scale;
@@ -316,21 +280,17 @@ function App() {
 
         ctx.restore();
       });
-
       ctx.restore();
     };
 
     window.redraw = redraw;
 
-    // Delete key removes selected card
     const handleKeyDown = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const sel = cardsOnCanvasRef.current.find(c => c.selected);
-        if (!sel) return;
-        if (sel.locked) return; // respect lock
+        if (!sel || sel.locked) return;
         cardsOnCanvasRef.current = cardsOnCanvasRef.current.filter(c => !c.selected);
         redraw();
-        // Sync React state via a custom event
         window.dispatchEvent(new CustomEvent('cardDeleted'));
       }
     };
@@ -339,7 +299,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Sync React state when Delete key removes a card
   useEffect(() => {
     const handler = () => {
       setDeckCount(cardsOnCanvasRef.current.length);
@@ -364,14 +323,35 @@ function App() {
     window.redraw();
   };
 
-  // ─── Deck Management ──────────────────────────────────────────────────────────
-  const handleAddDeck = () => {
+  // ─── Deck Management ──────────────────────────────────────────────────────
+  const handleAddDeck = async () => {
     if (!newDeckName.trim()) {
       setStatusMessage('Enter a deck name first.');
       setStatusType('error');
       return;
     }
-    folderInputRef.current.click();
+
+    if (isElectron) {
+      // Use Electron native folder picker
+      const result = await window.electronAPI.pickFolder();
+      if (!result) return;
+      const newDeck = {
+        name: newDeckName.trim(),
+        folderPath: result.folderPath,
+        files: result.files, // { name, path }[]
+      };
+      setDecks(prev => {
+        const updated = [...prev, newDeck];
+        setActiveDeckIndex(updated.length - 1);
+        setStatusMessage(`✓ "${newDeck.name}" — ${result.files.length} cards`);
+        setStatusType('success');
+        return updated;
+      });
+      setNewDeckName('');
+    } else {
+      // Fallback: browser file picker
+      folderInputRef.current.click();
+    }
   };
 
   const handleFolderPick = (e) => {
@@ -379,11 +359,11 @@ function App() {
       /\.(jpg|jpeg|png|gif)$/i.test(f.name)
     );
     if (files.length === 0) {
-      setStatusMessage('No image files found in that folder.');
+      setStatusMessage('No image files found.');
       setStatusType('error');
       return;
     }
-    const newDeck = { name: newDeckName.trim(), files };
+    const newDeck = { name: newDeckName.trim(), folderPath: null, files };
     setDecks(prev => {
       const updated = [...prev, newDeck];
       setActiveDeckIndex(updated.length - 1);
@@ -397,7 +377,6 @@ function App() {
 
   const handleRemoveDeck = () => {
     setDecks(prev => {
-      if (prev.length === 0) return prev;
       const updated = prev.filter((_, i) => i !== activeDeckIndex);
       setActiveDeckIndex(Math.max(0, activeDeckIndex - 1));
       setStatusMessage(updated.length === 0 ? 'No decks loaded.' : '✓ Deck removed');
@@ -406,40 +385,57 @@ function App() {
     });
   };
 
-  // ─── Draw ─────────────────────────────────────────────────────────────────────
-  const drawSpecificCard = (file) => {
+  // ─── Draw ─────────────────────────────────────────────────────────────────
+  const loadImageFromFile = async (file) => {
+    if (isElectron && file.path) {
+      // Load via Electron base64
+      const dataUrl = await window.electronAPI.readImage(file.path);
+      return dataUrl;
+    } else {
+      // Browser blob URL
+      return URL.createObjectURL(file);
+    }
+  };
+
+  const drawSpecificCard = async (file) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const url = URL.createObjectURL(file);
+    const url = await loadImageFromFile(file);
+    if (!url) return;
     const img = new Image();
-    img.onload = () => placeCard(img, canvas);
+    img.onload = () => placeCard(img, canvas, file);
     img.src = url;
     setShowCardList(false);
     setCardSearch('');
     setPreviewCard(null);
   };
 
-  const drawCard = () => {
+  const drawCard = async () => {
     const canvas = canvasRef.current;
     if (!canvas || decks.length === 0) { alert('Add a deck first.'); return; }
     const activeDeck = decks[activeDeckIndex];
     if (!activeDeck || activeDeck.files.length === 0) return;
     const randomIndex = Math.floor(Math.random() * activeDeck.files.length);
-    const url = URL.createObjectURL(activeDeck.files[randomIndex]);
+    const file = activeDeck.files[randomIndex];
+    const url = await loadImageFromFile(file);
+    if (!url) return;
     const img = new Image();
-    img.onload = () => placeCard(img, canvas);
+    img.onload = () => placeCard(img, canvas, file);
     img.src = url;
   };
 
-  const placeCard = (img, canvas) => {
+  const placeCard = (img, canvas, file) => {
     const vp = viewportRef.current;
-    const maxWidth = 150;
-    const maxHeight = 220;
+    const maxWidth = 150, maxHeight = 220;
     const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
     const worldCenterX = (canvas.width / 2 - vp.x) / vp.scale;
     const worldCenterY = (canvas.height / 2 - vp.y) / vp.scale;
     const card = {
       image: img,
+      // Store file reference for saving
+      filePath: file.path || null,
+      fileName: file.name,
+      deckIndex: activeDeckIndex,
       x: worldCenterX - (img.width * scale) / 2 + (Math.random() - 0.5) * 100,
       y: worldCenterY - (img.height * scale) / 2 + (Math.random() - 0.5) * 100,
       width: img.width * scale,
@@ -453,14 +449,13 @@ function App() {
     window.redraw();
   };
 
-  // ─── Layer Controls ───────────────────────────────────────────────────────────
+  // ─── Layer Controls ───────────────────────────────────────────────────────
   const bringToFront = () => {
     const list = cardsOnCanvasRef.current;
     const idx = list.findIndex(c => c.selected);
     if (idx === -1) return;
     const [card] = list.splice(idx, 1);
-    list.push(card);
-    window.redraw();
+    list.push(card); window.redraw();
   };
 
   const sendToBack = () => {
@@ -468,8 +463,7 @@ function App() {
     const idx = list.findIndex(c => c.selected);
     if (idx === -1) return;
     const [card] = list.splice(idx, 1);
-    list.unshift(card);
-    window.redraw();
+    list.unshift(card); window.redraw();
   };
 
   const bringForward = () => {
@@ -514,6 +508,119 @@ function App() {
     window.redraw();
   };
 
+  // ─── Save Layout ──────────────────────────────────────────────────────────
+  const saveLayout = async () => {
+    if (!saveLayoutName.trim()) return;
+
+    const layoutData = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      decks: decks.map(d => ({
+        name: d.name,
+        folderPath: d.folderPath || null,
+        fileNames: d.files.map(f => f.name || f),
+      })),
+      cards: cardsOnCanvasRef.current.map(card => ({
+        fileName: card.fileName,
+        deckIndex: card.deckIndex,
+        x: card.x,
+        y: card.y,
+        width: card.width,
+        height: card.height,
+        rotation: card.rotation || 0,
+        locked: card.locked || false,
+      })),
+      viewport: { ...viewportRef.current },
+    };
+
+    await window.electronAPI.saveLayout(saveLayoutName.trim(), layoutData);
+    setShowSaveDialog(false);
+    setSaveLayoutName('');
+    setStatusMessage(`✓ Layout "${saveLayoutName.trim()}" saved`);
+    setStatusType('success');
+  };
+
+  // ─── Load Layouts List ────────────────────────────────────────────────────
+  const openLoadDialog = async () => {
+    const list = await window.electronAPI.listLayouts();
+    setLayouts(list);
+    setShowLoadDialog(true);
+  };
+
+  // ─── Load a Layout ────────────────────────────────────────────────────────
+  const loadLayout = async (layout) => {
+    const data = await window.electronAPI.loadLayout(layout.filePath);
+    if (!data) { setStatusMessage('Failed to load layout.'); setStatusType('error'); return; }
+
+    // Reload decks from saved folder paths - reconstruct file paths directly, no picker needed
+    const reloadedDecks = data.decks.map((d) => {
+      if (d.folderPath) {
+        const files = d.fileNames.map(name => ({
+          name,
+          path: d.folderPath + '\\' + name,
+        }));
+        return { name: d.name, folderPath: d.folderPath, files };
+      }
+      return { name: d.name, folderPath: null, files: [] };
+    });
+
+    setDecks(reloadedDecks);
+
+    // Restore viewport
+    if (data.viewport) viewportRef.current = data.viewport;
+    setZoomLevel(Math.round((data.viewport?.scale || 1) * 100));
+
+    // Reload cards
+    const canvas = canvasRef.current;
+    cardsOnCanvasRef.current = [];
+
+    await Promise.all(data.cards.map(async (cardData) => {
+      const deck = reloadedDecks[cardData.deckIndex];
+      if (!deck) return;
+      const file = deck.files.find(f => (f.name || f) === cardData.fileName);
+      if (!file) return;
+
+      const url = await loadImageFromFile(file);
+      if (!url) return;
+
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          cardsOnCanvasRef.current.push({
+            image: img,
+            filePath: file.path || null,
+            fileName: cardData.fileName,
+            deckIndex: cardData.deckIndex,
+            x: cardData.x,
+            y: cardData.y,
+            width: cardData.width,
+            height: cardData.height,
+            rotation: cardData.rotation,
+            locked: cardData.locked,
+            selected: false,
+          });
+          resolve();
+        };
+        img.onerror = resolve;
+        img.src = url;
+      });
+    }));
+
+    setDeckCount(cardsOnCanvasRef.current.length);
+    window.redraw();
+    setShowLoadDialog(false);
+    setStatusMessage(`✓ Layout "${layout.name}" loaded`);
+    setStatusType('success');
+  };
+
+  const deleteLayout = async (layout, e) => {
+    e.stopPropagation();
+    await window.electronAPI.deleteLayout(layout.filePath);
+    setLayouts(prev => prev.filter(l => l.filePath !== layout.filePath));
+  };
+
+  const activeDeck = decks[activeDeckIndex];
+
   return (
     <div className="app-container">
       <div className="canvas-wrapper">
@@ -530,6 +637,22 @@ function App() {
           <p className="deck-counter">Cards on canvas: {deckCount}</p>
         </div>
 
+        {/* Layout Save/Load — Electron only */}
+        {isElectron && (
+          <div className="layout-section">
+            <label>Layouts:</label>
+            <div className="layout-buttons">
+              <button className="btn btn-layout" onClick={() => setShowSaveDialog(true)}>
+                💾 Save Layout
+              </button>
+              <button className="btn btn-layout" onClick={openLoadDialog}>
+                📂 Load Layout
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Deck Manager */}
         <div className="directory-section">
           <label>Active Deck:</label>
           <select
@@ -572,6 +695,7 @@ function App() {
           <p className={`status-message status-${statusType}`}>{statusMessage}</p>
         </div>
 
+        {/* Controls */}
         <div className="controls">
           <button className="btn btn-primary" onClick={drawCard} disabled={decks.length === 0}>
             🃏 Draw Random Card
@@ -580,16 +704,18 @@ function App() {
           <div className="card-search-wrapper">
             <button
               className="btn btn-search-toggle"
-              onClick={() => { setShowCardList(!showCardList); setCardSearch(''); setPreviewCard(null); }}
+              onClick={() => { setShowCardList(!showCardList); setCardSearch(''); }}
               disabled={decks.length === 0}
             >
               🔍 Draw Specific Card
             </button>
 
-            {showCardList && decks[activeDeckIndex] && (
+            {showCardList && activeDeck && (
               <div className="card-list-panel">
                 {previewCard && (
-                  <div className="card-preview" onMouseEnter={() => clearTimeout(window._previewTimeout)} onMouseLeave={() => { window._previewTimeout = setTimeout(() => setPreviewCard(null), 150); }}>
+                  <div className="card-preview"
+                    onMouseEnter={() => clearTimeout(window._previewTimeout)}
+                    onMouseLeave={() => { window._previewTimeout = setTimeout(() => setPreviewCard(null), 150); }}>
                     <img src={previewCard.url} alt={previewCard.name} className="card-preview-img" />
                     <p className="card-preview-name">{previewCard.name.replace(/\.[^/.]+$/, '')}</p>
                   </div>
@@ -603,17 +729,21 @@ function App() {
                   autoFocus
                 />
                 <div className="card-list-scroll">
-                  {decks[activeDeckIndex].files
-                    .filter(f => f.name.toLowerCase().includes(cardSearch.toLowerCase()))
+                  {activeDeck.files
+                    .filter(f => (f.name || f).toLowerCase().includes(cardSearch.toLowerCase()))
                     .map((file, i) => (
                       <div
                         key={i}
                         className="card-list-item"
                         onClick={() => drawSpecificCard(file)}
-                        onMouseEnter={() => { clearTimeout(window._previewTimeout); setPreviewCard({ url: URL.createObjectURL(file), name: file.name }); }}
+                        onMouseEnter={async () => {
+                          clearTimeout(window._previewTimeout);
+                          const url = await loadImageFromFile(file);
+                          setPreviewCard({ url, name: file.name || file });
+                        }}
                         onMouseLeave={() => { window._previewTimeout = setTimeout(() => setPreviewCard(null), 150); }}
                       >
-                        {file.name.replace(/\.[^/.]+$/, '')}
+                        {(file.name || file).replace(/\.[^/.]+$/, '')}
                       </div>
                     ))
                   }
@@ -658,12 +788,67 @@ function App() {
             <li>Click <strong>Draw Random Card</strong> to deal</li>
             <li>Click card to select, drag to move</li>
             <li>Drag <strong>corner handles</strong> to resize</li>
-            <li>Click 🔒 to lock a card in place</li>
+            <li>Click 🔒 on card to lock it</li>
             <li>Drag empty space to pan</li>
             <li><strong>Scroll wheel</strong> to zoom</li>
+            <li><strong>Delete key</strong> to remove selected</li>
           </ul>
         </div>
       </aside>
+
+      {/* Save Dialog */}
+      {showSaveDialog && (
+        <div className="modal-overlay" onClick={() => setShowSaveDialog(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Save Layout</h2>
+            <input
+              type="text"
+              className="dir-input"
+              placeholder="Layout name..."
+              value={saveLayoutName}
+              onChange={(e) => setSaveLayoutName(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && saveLayout()}
+              autoFocus
+            />
+            <div className="modal-buttons">
+              <button className="btn btn-primary" onClick={saveLayout}>Save</button>
+              <button className="btn btn-secondary" onClick={() => setShowSaveDialog(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Dialog */}
+      {showLoadDialog && (
+        <div className="modal-overlay" onClick={() => setShowLoadDialog(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Load Layout</h2>
+            {layouts.length === 0
+              ? <p className="status-message status-info">No saved layouts yet.</p>
+              : <div className="layout-list">
+                  {layouts.map((layout, i) => (
+                    <div key={i} className="layout-item" onClick={() => loadLayout(layout)}>
+                      <div className="layout-item-info">
+                        <span className="layout-item-name">{layout.name}</span>
+                        <span className="layout-item-date">
+                          {new Date(layout.modified).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <button
+                        className="layout-delete-btn"
+                        onClick={(e) => deleteLayout(layout, e)}
+                        title="Delete layout"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+            }
+            <div className="modal-buttons">
+              <button className="btn btn-secondary" onClick={() => setShowLoadDialog(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
