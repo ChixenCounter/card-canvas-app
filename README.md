@@ -44,57 +44,6 @@ A standalone desktop application for managing and displaying card images on a vi
 
 > **Note:** Windows may show a "Windows protected your PC" warning on first launch since the app isn't code-signed. Click **More info → Run anyway** to proceed.
 
----
-
-## Development Setup
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org) (LTS version)
-- [Git](https://git-scm.com)
-
-### Installation
-
-```bash
-git clone https://github.com/yourusername/card-canvas-app.git
-cd card-canvas-app
-npm install
-```
-
-### Running in Development
-
-Open two terminals:
-
-**Terminal 1** — Start React:
-```bash
-npm start
-```
-
-**Terminal 2** — Start Electron (once React says "Compiled successfully"):
-```bash
-.\node_modules\.bin\electron .
-```
-
-### Building a Production Installer
-
-**Step 1:** Build the React app:
-```bash
-npm run build
-```
-
-**Step 2:** Package with Electron:
-```bash
-.\node_modules\.bin\electron-packager . "Card Canvas" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=node_modules --ignore=dist --ignore=public/cards --ignore=src --ignore=installer --ignore=".git"
-```
-
-**Step 3:** Compile the installer using [Inno Setup](https://jrsoftware.org/isdl.php):
-1. Open Inno Setup Compiler
-2. Open `installer.iss`
-3. Press **F9**
-
-The installer will be saved to the `installer` folder.
-
----
 
 ## How to Use
 
