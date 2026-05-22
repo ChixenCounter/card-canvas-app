@@ -1,70 +1,161 @@
-# Getting Started with Create React App
+# Card Canvas
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A standalone desktop application for managing and displaying card images on a virtual tabletop canvas. Built with React and Electron.
 
-## Available Scripts
+![Card Canvas](https://img.shields.io/badge/version-1.0-blue) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green)
 
-In the project directory, you can run:
+---
 
-### `npm start`
+## Features
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **Multiple Decks** — Load as many card decks as you want from any folder on your computer. Switch between them instantly with a dropdown selector.
+- **Draw Cards** — Draw a random card from the active deck, or search and pick a specific card with a hover preview.
+- **Canvas Manipulation** — Drag cards anywhere on the canvas. Pan around by dragging empty space. Zoom in and out with the scroll wheel.
+- **Resize** — Drag the corner handles of any selected card to resize it freely.
+- **Rotate** — Rotate selected cards with the panel buttons, arrow keys, or type an exact angle.
+- **Layer Control** — Move cards in front of or behind each other using panel buttons or arrow keys.
+- **Lock** — Double-click any card to lock it in place. Locked cards can't be moved, resized, rotated, or deleted until unlocked.
+- **Grid** — Toggle a grid overlay with adjustable size (25, 50, 100, or 200px). Enable snap-to-grid for precise placement.
+- **Save & Load Layouts** — Save your canvas arrangement as a named layout. Load it back later with all cards restored to their exact positions, sizes, rotations, and lock states.
+- **Undo** — Step back through your last 30 actions with Ctrl+Z.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+---
 
-### `npm test`
+## Keyboard Shortcuts
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+| Key | Action |
+|-----|--------|
+| `← →` | Rotate selected card 15° |
+| `↑ ↓` | Move selected card back/forward in layer stack |
+| `Delete` | Remove selected card |
+| `Ctrl+S` | Save layout |
+| `Ctrl+Z` | Undo |
+| `Double-click` | Lock / unlock a card |
 
-### `npm run build`
+---
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Getting Started
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Running the Installer
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. Download `Card Canvas Setup.exe` from the releases page
+2. Run the installer and follow the wizard
+3. Launch **Card Canvas** from your Start Menu or Desktop shortcut
 
-### `npm run eject`
+> **Note:** Windows may show a "Windows protected your PC" warning on first launch since the app isn't code-signed. Click **More info → Run anyway** to proceed.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+---
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Development Setup
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### Prerequisites
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+- [Node.js](https://nodejs.org) (LTS version)
+- [Git](https://git-scm.com)
 
-## Learn More
+### Installation
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+```bash
+git clone https://github.com/yourusername/card-canvas-app.git
+cd card-canvas-app
+npm install
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### Running in Development
 
-### Code Splitting
+Open two terminals:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+**Terminal 1** — Start React:
+```bash
+npm start
+```
 
-### Analyzing the Bundle Size
+**Terminal 2** — Start Electron (once React says "Compiled successfully"):
+```bash
+.\node_modules\.bin\electron .
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### Building a Production Installer
 
-### Making a Progressive Web App
+**Step 1:** Build the React app:
+```bash
+npm run build
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+**Step 2:** Package with Electron:
+```bash
+.\node_modules\.bin\electron-packager . "Card Canvas" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=node_modules --ignore=dist --ignore=public/cards --ignore=src --ignore=installer --ignore=".git"
+```
 
-### Advanced Configuration
+**Step 3:** Compile the installer using [Inno Setup](https://jrsoftware.org/isdl.php):
+1. Open Inno Setup Compiler
+2. Open `installer.iss`
+3. Press **F9**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+The installer will be saved to the `installer` folder.
 
-### Deployment
+---
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+## How to Use
 
-### `npm run build` fails to minify
+### Loading Cards
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+1. Type a name for your deck in the **Deck name** field
+2. Click **+ Add** — a folder picker will open
+3. Select a folder containing your card images (JPG, PNG, or GIF)
+4. The deck will appear in the dropdown ready to use
+
+### Drawing Cards
+
+- Click **🃏 Draw Random Card** to pull a random card onto the canvas
+- Click **🔍 Draw Specific Card** to search and pick a card by name — hover over a name to preview the image
+
+### Managing the Canvas
+
+- **Select** a card by clicking it
+- **Move** by dragging
+- **Resize** by dragging a corner handle
+- **Rotate** using the panel buttons, ← → keys, or the angle input
+- **Layer** using the Front/Back/Forward/Backward buttons or ↑ ↓ keys
+- **Lock** by double-clicking — locked cards show a 🔒 badge
+- **Delete** selected card with the Delete key or panel button
+- **Zoom** with the scroll wheel — click ⊙ to reset
+- **Pan** by dragging empty canvas space
+
+### Saving and Loading Layouts
+
+1. Click **💾 Save Layout** and give it a name
+2. Your card positions, sizes, rotations, and lock states are all saved
+3. Click **📂 Load Layout** to restore a saved arrangement
+
+---
+
+## Project Structure
+
+```
+card-canvas-app/
+├── src/
+│   ├── App.js          # Main React application
+│   └── App.css         # Styles
+├── public/
+│   └── index.html      # HTML entry point
+├── electron.js         # Electron main process
+├── preload.js          # Electron preload script
+├── installer.iss       # Inno Setup installer script
+└── package.json
+```
+
+---
+
+## Tech Stack
+
+- **React** — UI framework
+- **HTML5 Canvas** — Card rendering and manipulation
+- **Electron** — Desktop app wrapper
+- **Inno Setup** — Windows installer
+
+---
+
+## License
+
+MIT License — feel free to use, modify, and distribute.
