@@ -35,6 +35,7 @@ function createWindow() {
   );
 
   mainWindow.setMenuBarVisibility(false);
+  
 }
 
 app.whenReady().then(createWindow);

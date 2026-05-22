@@ -35,9 +35,11 @@ canvas {
   border-left: 2px solid #2a2a4a;
   padding: 20px 16px;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: 100vh;
 }
 
 .panel-header {
@@ -675,4 +677,56 @@ canvas {
 .layout-delete-btn:hover {
   color: #f87171;
   background: #3a1a1a;
+}
+
+/* ── Angle Input ─────────────────────────────────── */
+.angle-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.angle-input-row .dir-input {
+  flex: 1;
+  padding: 8px 10px;
+}
+
+.angle-label {
+  font-size: 12px;
+  color: #6a6aaa;
+  white-space: nowrap;
+}
+
+/* ── Grid Toggle ─────────────────────────────────── */
+.btn-grid-toggle {
+  background: none;
+  border: 1px solid #3a3a6a;
+  color: #6a6aaa;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.btn-grid-toggle:hover {
+  color: #00d4ff;
+  border-color: #00d4ff;
+}
+
+.btn-grid-toggle.grid-on {
+  color: #00d4ff;
+  border-color: #00d4ff;
+  background: rgba(0, 212, 255, 0.1);
+}
+
+.grid-size-select {
+  background: #0f0f1e;
+  border: 1px solid #3a3a5a;
+  border-radius: 4px;
+  color: #a0a0c0;
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
 }

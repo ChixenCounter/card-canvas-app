@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
 
 const HANDLE_SIZE = 8;
@@ -19,12 +19,6 @@ function rotatePoint(x, y, angle) {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   return { x: x * cos - y * sin, y: x * sin + y * cos };
-}
-
-function getLockIconWorldPos(card) {
-  const angle = (card.rotation || 0) * Math.PI / 180;
-  const rot = rotatePoint(-card.width / 2, -card.height / 2, angle);
-  return { x: card.x + card.width / 2 + rot.x, y: card.y + card.height / 2 + rot.y };
 }
 
 function handleWorldPos(card, handle) {
@@ -54,8 +48,15 @@ function App() {
   const [saveLayoutName, setSaveLayoutName] = useState('');
 
   const cardsOnCanvasRef = useRef([]);
+  const undoStackRef = useRef([]); // stores snapshots for undo
   const folderInputRef = useRef(null);
   const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
+  const [showGrid, setShowGrid] = useState(false);
+  const [gridSize, setGridSize] = useState(50);
+  const showGridRef = useRef(false);
+  const gridSizeRef = useRef(50);
+  const lastClickTimeRef = useRef(0);
+  const lastClickCardRef = useRef(null);
 
   // ─── Canvas Setup ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -71,10 +72,11 @@ function App() {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    window.addEventListener('resize', () => {
+    const handleResize = () => {
       resizeCanvas();
       redraw();
-    });
+    };
+    window.addEventListener('resize', handleResize);
 
     let dragCard = null;
     let dragOffsetX = 0, dragOffsetY = 0;
@@ -105,31 +107,13 @@ function App() {
       return null;
     };
 
-    const hitLockIcon = (sx, sy) => {
-      const vp = viewportRef.current;
-      for (const card of [...cardsOnCanvasRef.current].reverse()) {
-        const wp = getLockIconWorldPos(card);
-        const iconPad = 4, iconSize = 18;
-        const screenX = (wp.x + iconPad + iconSize / 2) * vp.scale + vp.x - iconPad * vp.scale;
-        const screenY = (wp.y + iconPad + iconSize / 2) * vp.scale + vp.y - iconPad * vp.scale;
-        const hitRadius = (iconSize / 1.4) * vp.scale + 4;
-        if (Math.sqrt((sx - screenX) ** 2 + (sy - screenY) ** 2) <= hitRadius) return card;
-      }
-      return null;
-    };
+
 
     canvas.addEventListener('mousedown', (e) => {
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
       const { x, y } = toWorld(sx, sy);
-
-      const lockHit = hitLockIcon(sx, sy);
-      if (lockHit) {
-        lockHit.locked = !lockHit.locked;
-        if (lockHit.selected) setSelectedLocked(lockHit.locked);
-        redraw(); return;
-      }
 
       const handleHit = hitHandle(sx, sy);
       if (handleHit && !handleHit.card.locked) {
@@ -140,14 +124,38 @@ function App() {
         return;
       }
 
-      const found = [...cardsOnCanvasRef.current].reverse().find(card =>
-        x > card.x && x < card.x + card.width &&
-        y > card.y && y < card.y + card.height
-      );
+      // Use inverse rotation for accurate hit detection on rotated cards
+      const found = [...cardsOnCanvasRef.current].reverse().find(card => {
+        const angle = -(card.rotation || 0) * Math.PI / 180;
+        const cx = card.x + card.width / 2;
+        const cy = card.y + card.height / 2;
+        const rotated = rotatePoint(x - cx, y - cy, angle);
+        return (
+          rotated.x > -card.width / 2 && rotated.x < card.width / 2 &&
+          rotated.y > -card.height / 2 && rotated.y < card.height / 2
+        );
+      });
 
       cardsOnCanvasRef.current.forEach(c => c.selected = false);
 
       if (found) {
+        const now = Date.now();
+        const timeDiff = now - lastClickTimeRef.current;
+        const isDoubleClick = (timeDiff < 250) && (timeDiff > 50) && lastClickCardRef.current === found;
+        lastClickTimeRef.current = now;
+        lastClickCardRef.current = found;
+
+        if (isDoubleClick) {
+          // Toggle lock on double-click
+          found.locked = !found.locked;
+          found.selected = true;
+          cardsOnCanvasRef.current.forEach(c => { if (c !== found) c.selected = false; });
+          setHasSelected(true);
+          setSelectedLocked(found.locked);
+          redraw();
+          return;
+        }
+
         found.selected = true;
         setHasSelected(true);
         setSelectedLocked(found.locked || false);
@@ -161,6 +169,8 @@ function App() {
         dragCard = null;
         setHasSelected(false);
         setSelectedLocked(false);
+        lastClickTimeRef.current = 0;
+        lastClickCardRef.current = null;
         isPanning = true;
         panStartX = sx - viewportRef.current.x;
         panStartY = sy - viewportRef.current.y;
@@ -207,6 +217,8 @@ function App() {
     canvas.addEventListener('mouseup', () => { dragCard = null; dragHandle = null; isPanning = false; });
     canvas.addEventListener('mouseleave', () => { dragCard = null; dragHandle = null; isPanning = false; });
 
+
+
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
@@ -231,6 +243,47 @@ function App() {
       ctx.translate(vp.x, vp.y);
       ctx.scale(vp.scale, vp.scale);
 
+      // Draw grid if enabled
+      if (showGridRef.current) {
+        const gs = gridSizeRef.current;
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1 / vp.scale;
+
+        // Calculate grid bounds in world space
+        const startX = Math.floor((-vp.x / vp.scale) / gs) * gs;
+        const startY = Math.floor((-vp.y / vp.scale) / gs) * gs;
+        const endX = startX + (canvas.width / vp.scale) + gs * 2;
+        const endY = startY + (canvas.height / vp.scale) + gs * 2;
+
+        for (let x = startX; x < endX; x += gs) {
+          ctx.beginPath();
+          ctx.moveTo(x, startY);
+          ctx.lineTo(x, endY);
+          ctx.stroke();
+        }
+        for (let y = startY; y < endY; y += gs) {
+          ctx.beginPath();
+          ctx.moveTo(startX, y);
+          ctx.lineTo(endX, y);
+          ctx.stroke();
+        }
+
+        // Draw a slightly brighter line every 5 cells
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        for (let x = startX; x < endX; x += gs * 5) {
+          ctx.beginPath();
+          ctx.moveTo(x, startY);
+          ctx.lineTo(x, endY);
+          ctx.stroke();
+        }
+        for (let y = startY; y < endY; y += gs * 5) {
+          ctx.beginPath();
+          ctx.moveTo(startX, y);
+          ctx.lineTo(endX, y);
+          ctx.stroke();
+        }
+      }
+
       cardsOnCanvasRef.current.forEach(card => {
         ctx.save();
         ctx.translate(card.x + card.width / 2, card.y + card.height / 2);
@@ -254,16 +307,18 @@ function App() {
               ctx.fillRect(h.x - hs / 2, h.y - hs / 2, hs, hs);
             }
           }
-          const lockIcon = card.locked ? '🔒' : '🔓';
-          const iconSize = 18 / vp.scale;
-          const iconPad = 4 / vp.scale;
-          ctx.beginPath();
-          ctx.arc(-card.width / 2 + iconPad + iconSize / 2, -card.height / 2 + iconPad + iconSize / 2, iconSize / 1.4, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(0,0,0,0.55)';
-          ctx.fill();
-          ctx.font = `${iconSize}px serif`;
-          ctx.fillStyle = 'white';
-          ctx.fillText(lockIcon, -card.width / 2 + iconPad, -card.height / 2 + iconPad + iconSize);
+          // Only show lock icon if card is locked
+          if (card.locked) {
+            const iconSize = 18 / vp.scale;
+            const iconPad = 4 / vp.scale;
+            ctx.beginPath();
+            ctx.arc(-card.width / 2 + iconPad + iconSize / 2, -card.height / 2 + iconPad + iconSize / 2, iconSize / 1.4, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fill();
+            ctx.font = `${iconSize}px serif`;
+            ctx.fillStyle = 'white';
+            ctx.fillText('🔒', -card.width / 2 + iconPad, -card.height / 2 + iconPad + iconSize);
+          }
         }
 
         if (card.locked && !card.selected) {
@@ -286,6 +341,58 @@ function App() {
     window.redraw = redraw;
 
     const handleKeyDown = (e) => {
+      // Ctrl+S — Save layout
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('triggerSave'));
+        return;
+      }
+
+      // Ctrl+Z — Undo
+      if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('triggerUndo'));
+        return;
+      }
+
+      // Arrow keys — rotate and layer selected card
+      const sel = cardsOnCanvasRef.current.find(c => c.selected);
+      if (sel && !sel.locked) {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          sel.rotation = (sel.rotation || 0) - 15;
+          redraw(); return;
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          sel.rotation = (sel.rotation || 0) + 15;
+          redraw(); return;
+        }
+      }
+      if (sel) {
+        const list = cardsOnCanvasRef.current;
+        const idx = list.findIndex(c => c.selected);
+        if (e.key === 'ArrowUp') {
+          // Send back (away from user = lower in stack)
+          e.preventDefault();
+          if (idx > 0) {
+            [list[idx], list[idx - 1]] = [list[idx - 1], list[idx]];
+            redraw();
+          }
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          // Bring forward (toward user = higher in stack)
+          e.preventDefault();
+          if (idx < list.length - 1) {
+            [list[idx], list[idx + 1]] = [list[idx + 1], list[idx]];
+            redraw();
+          }
+          return;
+        }
+      }
+
+      // Delete key — remove selected card
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const sel = cardsOnCanvasRef.current.find(c => c.selected);
         if (!sel || sel.locked) return;
@@ -296,7 +403,10 @@ function App() {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -308,6 +418,29 @@ function App() {
     window.addEventListener('cardDeleted', handler);
     return () => window.removeEventListener('cardDeleted', handler);
   }, []);
+
+  // ─── Undo ─────────────────────────────────────────────────────────────────
+  const undo = () => {
+    if (undoStackRef.current.length === 0) return;
+    const snapshot = undoStackRef.current.pop();
+    cardsOnCanvasRef.current = snapshot;
+    setDeckCount(snapshot.length);
+    setHasSelected(false);
+    setSelectedLocked(false);
+    window.redraw();
+  };
+
+  const toggleGrid = () => {
+    showGridRef.current = !showGridRef.current;
+    setShowGrid(showGridRef.current);
+    window.redraw();
+  };
+
+  const handleGridSizeChange = (size) => {
+    gridSizeRef.current = size;
+    setGridSize(size);
+    window.redraw();
+  };
 
   const resetZoom = () => {
     viewportRef.current = { x: 0, y: 0, scale: 1 };
@@ -444,6 +577,11 @@ function App() {
       selected: false,
       locked: false,
     };
+    // Save undo snapshot before adding card
+    const snapshot = cardsOnCanvasRef.current.map(c => ({ ...c }));
+    undoStackRef.current.push(snapshot);
+    if (undoStackRef.current.length > 30) undoStackRef.current.shift();
+
     cardsOnCanvasRef.current.push(card);
     setDeckCount(cardsOnCanvasRef.current.length);
     window.redraw();
@@ -501,6 +639,8 @@ function App() {
   };
 
   const clearCanvas = () => {
+    if (cardsOnCanvasRef.current.length === 0) return;
+    if (!window.confirm('Clear all cards from the canvas? This cannot be undone.')) return;
     cardsOnCanvasRef.current = [];
     setDeckCount(0);
     setHasSelected(false);
@@ -571,7 +711,6 @@ function App() {
     setZoomLevel(Math.round((data.viewport?.scale || 1) * 100));
 
     // Reload cards
-    const canvas = canvasRef.current;
     cardsOnCanvasRef.current = [];
 
     await Promise.all(data.cards.map(async (cardData) => {
@@ -628,6 +767,23 @@ function App() {
         <div className="zoom-indicator">
           <span>{zoomLevel}%</span>
           <button className="btn-reset-zoom" onClick={resetZoom} title="Reset zoom">⊙</button>
+          <button
+            className={`btn-grid-toggle ${showGrid ? 'grid-on' : ''}`}
+            onClick={toggleGrid}
+            title="Toggle grid"
+          >⊞</button>
+          {showGrid && (
+            <select
+              className="grid-size-select"
+              value={gridSize}
+              onChange={(e) => handleGridSizeChange(Number(e.target.value))}
+            >
+              <option value={25}>25px</option>
+              <option value={50}>50px</option>
+              <option value={100}>100px</option>
+              <option value={200}>200px</option>
+            </select>
+          )}
         </div>
       </div>
 
@@ -659,10 +815,13 @@ function App() {
             className="deck-select"
             value={activeDeckIndex}
             onChange={(e) => {
-              setActiveDeckIndex(Number(e.target.value));
-              const d = decks[Number(e.target.value)];
-              setStatusMessage(d ? `✓ "${d.name}" — ${d.files.length} cards` : '');
-              setStatusType('success');
+              const idx = Number(e.target.value);
+              setActiveDeckIndex(idx);
+              const d = decks[idx];
+              if (d) {
+                setStatusMessage(`✓ "${d.name}" — ${d.files.length} cards`);
+                setStatusType('success');
+              }
             }}
             disabled={decks.length === 0}
           >
@@ -767,6 +926,23 @@ function App() {
             <button className="btn btn-secondary" onClick={() => rotateSelected(-15)} disabled={selectedLocked}>↻ Left</button>
             <button className="btn btn-secondary" onClick={() => rotateSelected(15)} disabled={selectedLocked}>Right ↻</button>
           </div>
+          <div className="angle-input-row">
+            <input
+              type="number"
+              className="dir-input"
+              placeholder="Angle °"
+              min="-360"
+              max="360"
+              disabled={selectedLocked || !hasSelected}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  const sel = cardsOnCanvasRef.current.find(c => c.selected);
+                  if (sel) { sel.rotation = Number(e.target.value); window.redraw(); e.target.value = ''; }
+                }
+              }}
+            />
+            <span className="angle-label">° Set</span>
+          </div>
 
           <div className="section-label">Layer Selected</div>
           <div className="layer-controls">
@@ -788,10 +964,15 @@ function App() {
             <li>Click <strong>Draw Random Card</strong> to deal</li>
             <li>Click card to select, drag to move</li>
             <li>Drag <strong>corner handles</strong> to resize</li>
-            <li>Click 🔒 on card to lock it</li>
+            <li><strong>Double-click</strong> a card to lock/unlock it</li>
+            <li><strong>← →</strong> arrow keys to rotate selected</li>
+            <li><strong>↑ ↓</strong> arrow keys to layer selected</li>
             <li>Drag empty space to pan</li>
             <li><strong>Scroll wheel</strong> to zoom</li>
-            <li><strong>Delete key</strong> to remove selected</li>
+            <li><strong>Delete</strong> to remove selected</li>
+            <li><strong>Ctrl+S</strong> to save layout</li>
+            <li>Click <strong>⊞</strong> on canvas to toggle grid</li>
+            <li><strong>Ctrl+Z</strong> to undo</li>
           </ul>
         </div>
       </aside>
