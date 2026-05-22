@@ -56,6 +56,8 @@ function App() {
   const [gridSize, setGridSize] = useState(50);
   const showGridRef = useRef(false);
   const gridSizeRef = useRef(50);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  const snapToGridRef = useRef(false);
   const lastClickTimeRef = useRef(0);
   const lastClickCardRef = useRef(null);
 
@@ -90,6 +92,12 @@ function App() {
     const toWorld = (sx, sy) => {
       const vp = viewportRef.current;
       return { x: (sx - vp.x) / vp.scale, y: (sy - vp.y) / vp.scale };
+    };
+
+    const snapValue = (val) => {
+      if (!snapToGridRef.current) return val;
+      const gs = gridSizeRef.current;
+      return Math.round(val / gs) * gs;
     };
 
     const getSelectedCard = () => cardsOnCanvasRef.current.find(c => c.selected);
@@ -197,8 +205,10 @@ function App() {
 
       if (dragCard) {
         const { x, y } = toWorld(sx, sy);
-        dragCard.x = x - dragOffsetX;
-        dragCard.y = y - dragOffsetY;
+        const rawX = x - dragOffsetX;
+        const rawY = y - dragOffsetY;
+        dragCard.x = snapValue(rawX);
+        dragCard.y = snapValue(rawY);
         redraw();
       } else if (isPanning) {
         viewportRef.current.x = sx - panStartX;
@@ -215,7 +225,9 @@ function App() {
       }
     });
 
-    canvas.addEventListener('mouseup', () => { dragCard = null; dragHandle = null; isPanning = false; });
+    canvas.addEventListener('mouseup', () => {
+      dragCard = null; dragHandle = null; isPanning = false;
+    });
     canvas.addEventListener('mouseleave', () => { dragCard = null; dragHandle = null; isPanning = false; });
 
 
@@ -421,6 +433,7 @@ function App() {
   }, []);
 
   // ─── Undo ─────────────────────────────────────────────────────────────────
+  // eslint-disable-next-line no-unused-vars
   const undo = () => {
     if (undoStackRef.current.length === 0) return;
     const snapshot = undoStackRef.current.pop();
@@ -434,7 +447,17 @@ function App() {
   const toggleGrid = () => {
     showGridRef.current = !showGridRef.current;
     setShowGrid(showGridRef.current);
+    // Turn off snap if grid is turned off
+    if (!showGridRef.current) {
+      snapToGridRef.current = false;
+      setSnapToGrid(false);
+    }
     window.redraw();
+  };
+
+  const toggleSnapToGrid = () => {
+    snapToGridRef.current = !snapToGridRef.current;
+    setSnapToGrid(snapToGridRef.current);
   };
 
   const handleGridSizeChange = (size) => {
@@ -774,16 +797,23 @@ function App() {
             title="Toggle grid"
           >⊞</button>
           {showGrid && (
-            <select
-              className="grid-size-select"
-              value={gridSize}
-              onChange={(e) => handleGridSizeChange(Number(e.target.value))}
-            >
-              <option value={25}>25px</option>
-              <option value={50}>50px</option>
-              <option value={100}>100px</option>
-              <option value={200}>200px</option>
-            </select>
+            <>
+              <select
+                className="grid-size-select"
+                value={gridSize}
+                onChange={(e) => handleGridSizeChange(Number(e.target.value))}
+              >
+                <option value={25}>25px</option>
+                <option value={50}>50px</option>
+                <option value={100}>100px</option>
+                <option value={200}>200px</option>
+              </select>
+              <button
+                className={`btn-grid-toggle ${snapToGrid ? 'grid-on' : ''}`}
+                onClick={toggleSnapToGrid}
+                title="Snap to grid"
+              >⊠</button>
+            </>
           )}
         </div>
       </div>
