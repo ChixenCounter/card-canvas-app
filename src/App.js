@@ -52,6 +52,7 @@ function App() {
   const folderInputRef = useRef(null);
   const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
   const [showGrid, setShowGrid] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [gridSize, setGridSize] = useState(50);
   const showGridRef = useRef(false);
   const gridSizeRef = useRef(50);
@@ -375,7 +376,7 @@ function App() {
         if (e.key === 'ArrowUp') {
           // Send back (away from user = lower in stack)
           e.preventDefault();
-          if (idx > 0) {
+          if (idx > 0 && !sel.locked) {
             [list[idx], list[idx - 1]] = [list[idx - 1], list[idx]];
             redraw();
           }
@@ -384,7 +385,7 @@ function App() {
         if (e.key === 'ArrowDown') {
           // Bring forward (toward user = higher in stack)
           e.preventDefault();
-          if (idx < list.length - 1) {
+          if (idx < list.length - 1 && !sel.locked) {
             [list[idx], list[idx + 1]] = [list[idx + 1], list[idx]];
             redraw();
           }
@@ -591,7 +592,7 @@ function App() {
   const bringToFront = () => {
     const list = cardsOnCanvasRef.current;
     const idx = list.findIndex(c => c.selected);
-    if (idx === -1) return;
+    if (idx === -1 || list[idx].locked) return;
     const [card] = list.splice(idx, 1);
     list.push(card); window.redraw();
   };
@@ -599,7 +600,7 @@ function App() {
   const sendToBack = () => {
     const list = cardsOnCanvasRef.current;
     const idx = list.findIndex(c => c.selected);
-    if (idx === -1) return;
+    if (idx === -1 || list[idx].locked) return;
     const [card] = list.splice(idx, 1);
     list.unshift(card); window.redraw();
   };
@@ -607,7 +608,7 @@ function App() {
   const bringForward = () => {
     const list = cardsOnCanvasRef.current;
     const idx = list.findIndex(c => c.selected);
-    if (idx === -1 || idx === list.length - 1) return;
+    if (idx === -1 || idx === list.length - 1 || list[idx].locked) return;
     [list[idx], list[idx + 1]] = [list[idx + 1], list[idx]];
     window.redraw();
   };
@@ -615,7 +616,7 @@ function App() {
   const sendBackward = () => {
     const list = cardsOnCanvasRef.current;
     const idx = list.findIndex(c => c.selected);
-    if (idx <= 0) return;
+    if (idx <= 0 || list[idx].locked) return;
     [list[idx], list[idx - 1]] = [list[idx - 1], list[idx]];
     window.redraw();
   };
@@ -957,23 +958,27 @@ function App() {
         </div>
 
         <div className="info-section">
-          <h3>How to Use</h3>
-          <ul>
-            <li>Click <strong>+ Add</strong> to load a deck</li>
-            <li>Switch decks from the dropdown</li>
-            <li>Click <strong>Draw Random Card</strong> to deal</li>
-            <li>Click card to select, drag to move</li>
-            <li>Drag <strong>corner handles</strong> to resize</li>
-            <li><strong>Double-click</strong> a card to lock/unlock it</li>
-            <li><strong>← →</strong> arrow keys to rotate selected</li>
-            <li><strong>↑ ↓</strong> arrow keys to layer selected</li>
-            <li>Drag empty space to pan</li>
-            <li><strong>Scroll wheel</strong> to zoom</li>
-            <li><strong>Delete</strong> to remove selected</li>
-            <li><strong>Ctrl+S</strong> to save layout</li>
-            <li>Click <strong>⊞</strong> on canvas to toggle grid</li>
-            <li><strong>Ctrl+Z</strong> to undo</li>
-          </ul>
+          <button className="help-toggle" onClick={() => setShowHelp(h => !h)}>
+            {showHelp ? '▾ Hide Help' : '▸ How to Use'}
+          </button>
+          {showHelp && (
+            <ul className="help-list">
+              <li>Click <strong>+ Add</strong> to load a deck</li>
+              <li>Switch decks from the dropdown</li>
+              <li>Click <strong>Draw Random Card</strong> to deal</li>
+              <li>Click card to select, drag to move</li>
+              <li>Drag <strong>corner handles</strong> to resize</li>
+              <li><strong>Double-click</strong> a card to lock/unlock</li>
+              <li><strong>← →</strong> to rotate selected</li>
+              <li><strong>↑ ↓</strong> to layer selected</li>
+              <li>Drag empty space to pan</li>
+              <li><strong>Scroll wheel</strong> to zoom</li>
+              <li><strong>Delete</strong> to remove selected</li>
+              <li><strong>Ctrl+S</strong> to save layout</li>
+              <li><strong>Ctrl+Z</strong> to undo</li>
+              <li><strong>⊞</strong> to toggle grid</li>
+            </ul>
+          )}
         </div>
       </aside>
 
